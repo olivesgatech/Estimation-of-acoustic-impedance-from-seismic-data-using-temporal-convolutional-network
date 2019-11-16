@@ -12,9 +12,9 @@ from core.model import *
 from core.results import *
 
 # Fix the random seeds
-torch.backends.cudnn.deterministic = True
-if torch.cuda.is_available(): torch.cuda.manual_seed_all(2019)
-np.random.seed(seed=2019)
+#torch.backends.cudnn.deterministic = True
+#if torch.cuda.is_available(): torch.cuda.manual_seed_all(2019)
+#np.random.seed(seed=2019)
 
 
 # Define function to perform train-val split
@@ -27,11 +27,11 @@ def train_val_split(args):
     """
     # Load data
     seismic_offsets = marmousi_seismic().squeeze()[:, 100:600]  # dim= No_of_gathers x trace_length
-    impedance = marmousi_model().T[:, 100:600]  # dim = No_of_traces x trace_length
+    impedance = marmousi_model().T[:, 400:2400]  # dim = No_of_traces x trace_length
 
     # Split into train and val
-    train_indices = np.linspace(0, 2720, args.n_wells).astype(int)
-    val_indices = np.setdiff1d(np.arange(0, 2720).astype(int), train_indices)
+    train_indices = np.linspace(452, 2399, args.n_wells).astype(int)
+    val_indices = np.setdiff1d(np.arange(452, 2399).astype(int), train_indices)
     x_train, y_train = seismic_offsets[train_indices], impedance[train_indices]
     x_val, y_val = seismic_offsets[val_indices], impedance[val_indices]
 
@@ -74,6 +74,10 @@ def train(args):
                 args.kernel_size,
                 args.dropout).to(device)
 
+    #model = ANN().to(device)
+
+    #model = lstm().to(device)
+
     # Set up loss
     criterion = torch.nn.MSELoss()
 
@@ -97,7 +101,7 @@ def train(args):
             optimizer.step()
             train_loss.append(loss.item())
             writer.add_scalar(tag='Training Loss', scalar_value=loss.item(), global_step=iter)
-            if epoch % 20 == 0:
+            if epoch % 200 == 0:
                 with torch.no_grad():
                     model.eval()
                     y_pred = model(x_val)
@@ -135,8 +139,8 @@ def train(args):
     else:
         print('Saving results...')
 
-    np.save(pjoin(results_directory, 'AI.npy'), marmousi_model().T[:, 100:600])
-    np.save(pjoin(results_directory, 'AI_inv.npy'), AI_inv.detach().numpy().squeeze())
+    np.save(pjoin(results_directory, 'AI.npy'), marmousi_model().T[452:2399, 400:2400])
+    np.save(pjoin(results_directory, 'AI_inv.npy'), AI_inv.detach().numpy().squeeze()[452:2399])
     print('Results successfully saved.')
 
 
@@ -144,15 +148,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Hyperparams')
     parser.add_argument('--n_epoch', nargs='?', type=int, default=1000,
                         help='# of the epochs. Default = 1000')
-    parser.add_argument('--batch_size', nargs='?', type=int, default=19,
+    parser.add_argument('--batch_size', nargs='?', type=int, default=10,
                         help='Batch size. Default = 1.')
-    parser.add_argument('--tcn_layer_channels', nargs='+', type=int, default=[3, 5, 5, 5, 6, 6],
+    parser.add_argument('--tcn_layer_channels', nargs='+', type=int, default=[3, 5, 5, 5, 6, 6, 6, 6],
                         help='No of channels in each temporal block of the tcn. Default = numbers reported in paper')
     parser.add_argument('--kernel_size', nargs='?', type=int, default=5,
                         help='kernel size for the tcn. Default = 5')
     parser.add_argument('--dropout', nargs='?', type=float, default=0.2,
                         help='Dropout for the tcn. Default = 0.2')
-    parser.add_argument('--n_wells', nargs='?', type=int, default=19,
+    parser.add_argument('--n_wells', nargs='?', type=int, default=10,
                         help='# of well-logs used for training. Default = 19')
     parser.add_argument('--lr', nargs='?', type=float, default=0.001,
                         help='learning rate parameter for the adam optimizer. Default = 0.001')

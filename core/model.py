@@ -70,6 +70,8 @@ class TCN(nn.Module):
         super(TCN, self).__init__()
         self.tcn = TemporalConvNet(input_size, num_channels, kernel_size=kernel_size, dropout=dropout)
         self.global_residual = nn.Conv1d(input_size, output_size, kernel_size=1)  # Global skip from input to last layer
+        self.deconv1 = nn.ConvTranspose1d(7, 5, kernel_size=5, stride=2, padding=2)
+        self.deconv2 = nn.ConvTranspose1d(5, 1, kernel_size=6, stride=2, padding=1, dilation=1)
         self.out = nn.Linear(num_channels[-1]+1, output_size)
         self.weight_init_res()
 
@@ -80,7 +82,44 @@ class TCN(nn.Module):
         """Inputs have to have dimension (N, C_in, L_in)"""
         y = self.tcn(inputs)  # input should have dimension (N, C, L)
         y = torch.cat((y, inputs), dim=1)
-        out = self.out(y.transpose(1, 2)).transpose(1, 2)
+        y = F.relu(self.deconv1(y))
+        y = self.deconv2(y)
+        out = y
+        #out = self.out(y.transpose(1, 2)).transpose(1, 2)
         return out
 
+
+class ANN(nn.Module):
+    def __init__(self):
+        super(ANN, self).__init__()
+        self.ann1 = nn.Linear(500, 600)
+        self.ann2 = nn.Linear(600, 600)
+        self.ann3 = nn.Linear(600, 500)
+
+    def forward(self, inputs):  # inputs have to be (N, *, in_features)
+        N,C,L = inputs.shape
+        a1 = torch.sigmoid(self.ann1(inputs))
+        a2 = torch.sigmoid(self.ann2(a1))
+        a3 = self.ann3(a2)
+
+        return a3
+
+
+class lstm(nn.Module):
+    def __init__(self):
+        super(lstm, self).__init__()
+        self.lstm1 = nn.LSTM(input_size=1, hidden_size=20, batch_first=True, bidirectional=True)
+        self.ann = nn.Linear(40, 1)
+        self.deconv1 = nn.ConvTranspose1d(1, 5, kernel_size=5, stride=2, padding=2)
+        self.deconv2 = nn.ConvTranspose1d(5, 1, kernel_size=6, stride=2, padding=1, dilation=1)
+
+    def forward(self, inputs):  # inputs have to be (N,L,C)
+        inputs = inputs.transpose(1, 2)
+        a1,_ = self.lstm1(inputs)
+        a2 = self.ann(a1)
+        a2 = F.relu(a2.transpose(2,1))
+        a3 = F.relu(self.deconv1(a2))
+        a4 = self.deconv2(a3)
+
+        return a4
 

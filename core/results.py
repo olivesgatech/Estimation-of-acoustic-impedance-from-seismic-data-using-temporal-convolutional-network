@@ -17,6 +17,10 @@ def evaluate(args):
     AI = np.load(pjoin('results', 'AI.npy'))
     AI_inv = np.load(pjoin('results', 'AI_inv.npy')) * AI.std() + AI.mean()
 
+    # Get training and validation indices
+    train_indices = np.linspace(0, 1946, args.n_wells).astype(int)
+    val_indices = np.setdiff1d(np.arange(0, 1946).astype(int), train_indices)
+
     # Make AI, predicted AI plots
     make_plots(AI, AI_inv)
 
@@ -24,19 +28,17 @@ def evaluate(args):
     scatter_plot(AI, AI_inv)
 
     # Make trace plot
-    trace_plot(AI, AI_inv)
+    trace_plot(AI, AI_inv, val_indices)
 
     # Print r2 and PCC scores
-    train_indices = np.linspace(0, 2720, args.n_wells).astype(int)
-    val_indices = np.setdiff1d(np.arange(0, 2720).astype(int), train_indices)
     r2_pcc_scores(train_indices, val_indices, AI, AI_inv)
 
 
 def plot(img, cmap='rainbow', cbar_label=r'AI ($m/s\times g/cm^3$)', vmin=None, vmax=None):
     """Makes seaborn style plots"""
-    dt = 0.00466
-    dx = 6.25
-    Y, X = np.mgrid[slice(0.47, 2.8 + dt, dt), slice(0, 17000 + dx, dx)]
+    dt = 0.001165582791395698
+    dx = 6.247687564234327
+    Y, X = np.mgrid[slice(0.47, 2.8 + dt, dt), slice(2824, 14982 + dx, dx)]
 
     fig = plt.figure(figsize=(20, 6))
     ax = fig.add_subplot(1, 1, 1)
@@ -51,7 +53,7 @@ def plot(img, cmap='rainbow', cbar_label=r'AI ($m/s\times g/cm^3$)', vmin=None, 
     ax.invert_yaxis()
     ax.xaxis.set_label_position('top')
     ax.xaxis.set_ticks_position("top")
-    plt.gca().set_xticks(np.arange(0, 17000 + 1, 1700 * 2))
+    plt.gca().set_xticks(np.arange(2800, 15000 + 1, 1700 * 2))
     plt.tick_params(axis='both', which='major', labelsize=30)
     cbar.ax.tick_params(labelsize=24)
     cbar.set_label(cbar_label, rotation=270, fontsize=30, labelpad=40)
@@ -60,8 +62,10 @@ def plot(img, cmap='rainbow', cbar_label=r'AI ($m/s\times g/cm^3$)', vmin=None, 
 
 def make_plots(AI, AI_inv):
     """Generate and save true and predicted AI plots"""
-    vmin = min([AI.min(), AI_inv.min()])
-    vmax = max([AI.max(), AI_inv.max()])
+    #vmin = min([AI.min(), AI_inv.min()])
+    vmin = AI.min()
+    #vmax = max([AI.max(), AI_inv.max()])
+    vmax = AI.max()
     fig = plot(AI, vmin=vmin, vmax=vmax)
     fig.savefig('AI.png', bbox_inches='tight')
     fig = plot(AI_inv, vmin=vmin, vmax=vmax)
@@ -101,7 +105,7 @@ def scatter_plot(AI, AI_inv):
     plt.show()
 
 
-def trace_plot(AI, AI_inv):
+def trace_plot(AI, AI_inv, val_indices):
     """
     Generates a figure showing handpicked traces from true and predicted AI models superimposed on each other.
 
@@ -112,15 +116,12 @@ def trace_plot(AI, AI_inv):
     AI_inv: numpy array
            The predicted AI model
     """
-    AI = np.expand_dims(AI, axis=1)
-    AI_inv = np.expand_dims(AI_inv, axis=1)
-    x_loc = np.array(
-        [3400, 6800, 10200, 13600])  ## Choose 4 number betweeb 0 and 17000 (distance in meters along the horizontal)
-    inds = (AI.shape[0] * (x_loc / 17000)).astype(int)
+
+    inds = val_indices[::500].astype(int)
 
     x = AI[inds].squeeze()
     y = AI_inv[inds].squeeze()
-    time = np.linspace(0.47, 2.8, 500)
+    time = np.linspace(0.47, 2.8, 2000)
     fig, ax = plt.subplots(1, x.shape[0], figsize=(10, 12), sharey=True)
 
     max = np.max([y.max(), x.max()]) * 1.2
@@ -129,7 +130,7 @@ def trace_plot(AI, AI_inv):
     for i in range(len(inds)):
         p1 = ax[i].plot(x[i], time, 'k')
         p2 = ax[i].plot(y[i], time, 'r')
-        ax[i].set_xlabel(r'AI($m/s \times g/cm^3$)' + '\n' + r'$distance={}m$'.format(x_loc[i]), fontsize=15)
+        ax[i].set_xlabel(r'AI($m/s \times g/cm^3$)' + '\n' + r'$trace={}m$'.format(inds[i]), fontsize=15)
         if i == 0:
             ax[i].set_ylabel('Depth (Km)', fontsize=20)
             ax[i].yaxis.set_tick_params(labelsize=20)
@@ -142,7 +143,7 @@ def trace_plot(AI, AI_inv):
     fig.legend([p1[0], p2[0]], ["True AI", "Estimated AI for SVR"], loc="upper center", fontsize=20,
                bbox_to_anchor=(0.5, 1.07))
     plt.show()
-    fig.savefig('AI_traces_svr.png'.format(x_loc), bbox_inches='tight')
+    fig.savefig('AI_traces_svr.png'.format(inds), bbox_inches='tight')
 
 
 def r2_pcc_scores(train_indices, val_indices, AI, AI_inv):
