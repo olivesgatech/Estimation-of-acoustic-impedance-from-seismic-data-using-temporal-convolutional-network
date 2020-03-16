@@ -32,7 +32,7 @@ was used to predict AI on Marmousi 2 dataset with an average r<sup>2</sup> coeff
  
 ## Dataset
 Create a directory called `data` inside the parent directory containing the project files. Download the data from this 
-[link](https://www.dropbox.com/s/jly7m44r84ecw0c/data.zip?dl=0) and unzip the contents of the file in the `data` folder.
+[link](https://www.dropbox.com/sh/caxmz94vo3ms2bl/AABTWb2KRrKzLRinfwG0G7UGa?dl=0) and put the contents in the `data` folder.
 
 ## Running the Code
 After scrolling to the directory containing the project, in the command line, run:
