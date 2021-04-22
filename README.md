@@ -38,7 +38,7 @@ Alternatively, you may run the codes from the command line as follows:
 
 ```
 cd <project root directory>
-python train-1D-TCN.py --no_wells 12 --epochs 900 --data_flag <marmousi or seam>
+python train.py --no_wells 12 --epochs 900 --data_flag <marmousi or seam>
 
 ```  
 
