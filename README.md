@@ -30,33 +30,16 @@ modeling. The proposed workflow overcomes some of the problems that other networ
 gradient vanishing in Recurrent Neural Networks, or overfitting in Convolutional Neural Networks. The proposed workflow
 was used to predict AI on Marmousi 2 dataset with an average r<sup>2</sup> coefficient of 91% on a hold-out validation set. 
  
-## Dataset
-Create a directory called `data` inside the parent directory containing the project files. Download the data from this 
-[link](https://www.dropbox.com/sh/caxmz94vo3ms2bl/AABTWb2KRrKzLRinfwG0G7UGa?dl=0) and put the contents in the `data` folder.
 
 ## Running the Code
-After scrolling to the directory containing the project, in the command line, run:
-```
-python train.py 
-```
-This will run the *train.py* file with the default settings for all the parameters. To view all these along with their 
-default values, run:
-```
-python train.py -h
-```
-If you want to change, say the number of epochs to 1200, just run:
-```
-python train.py --n_epochs 1200
-```
+The repository contains all the data needed to run the codes. Clone the repo to an appropriate directory on your machine.
+Afterwards, use a dedicated python IDE like Spyder or PyCharm to view and execute the `train.py` file. 
+Alternatively, you may run the codes from the command line as follows: 
 
-### Inspecting the Results
-The training and validation losses will be printed on the terminal along with the epoch number. After the training is 
-over, the images for the ground-truth AI model, the predicted AI model, the absolute difference between the two, and a 
-figure showing hand-picked predicted AI traces superimposed on their ground-truth traces will be printed on the screen.
-You can also view the training and validation loss curves along with the predicted AI images in *tensorboard* by 
-running:
 ```
-tensorboard --logdir path/to/log-directory
+cd <project root directory>
+python train-1D-TCN.py --no_wells 12 --epochs 900 --data_flag <marmousi or seam>
+
 ```  
 
 ## Citation 

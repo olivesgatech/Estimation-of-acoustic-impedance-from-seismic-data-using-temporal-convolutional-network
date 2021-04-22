@@ -1,168 +1,206 @@
-# This script trains the model defined in model file on the marmousi post-stack seismic gathers
+
+# imports
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import torch
+from os.path import join
+from core.utils import extract, standardize
+from core.datasets import SeismicDataset1D
+from torch.utils.data import DataLoader
+from core.model1D import MustafaNet
+from sklearn.metrics import r2_score
+import errno
 import argparse
 
-import torch
-import numpy as np
-from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
+    
+def preprocess(no_wells, data_flag='seam'):
+    """Function initializes data, performs standardization, and train test split
+    
+    Parameters:
+    ----------
+    no_wells : int,
+        number of evenly spaced wells and seismic samples to be evenly sampled 
+        from seismic section.
 
-from core.utils import *
-from core.data_loader import *
-from core.model import *
-from core.results import *
+        
+    Returns
+    -------
+    seismic : array_like, shape(num_traces, depth samples)
+        2-D array containing seismic section 
+        
+    model : array_like, shape(num_wells, depth samples)
+        2-D array containing model section 
 
-# Fix the random seeds
-#torch.backends.cudnn.deterministic = True
-#if torch.cuda.is_available(): torch.cuda.manual_seed_all(2019)
-#np.random.seed(seed=2019)
-
-
-# Define function to perform train-val split
-def train_val_split(args):
-    """Splits dataset into training and validation based on the number of well-logs specified by the user.
-
-    The training traces are sampled uniformly along the length of the model. The validation data is all of the
-    AI model except the training traces. Mean and Standard deviation are computed on the training data and used to
-    standardize both the training and validation datasets.
     """
-    # Load data
-    seismic_offsets = marmousi_seismic().squeeze()[:, 100:600]  # dim= No_of_gathers x trace_length
-    impedance = marmousi_model().T[:, 400:2400]  # dim = No_of_traces x trace_length
+    
+    # get project root directory
+    project_root = os.getcwd()
+    
+    if ~os.path.isdir('data'): # if data directory does not exists then extract
+        extract('data.zip', project_root)
+        
+    if data_flag == 'seam':
+        # Load data
+        seismic = np.load(join('data','poststack_seam_seismic.npy')).squeeze()[:, 50:]
+        seismic = seismic[::2, :]
+        
+        # Load targets and standardize data
+        model = np.load(join('data','seam_elastic_model.npy'))[::3,:,::2][:, :, 50:]
+        model = model[:,0,:] * model[:,2,:]
+    
+    else:
+        # Load data
+        seismic = np.load(join('data','marmousi_synthetic_seismic.npy')).squeeze()
+        model= np.load(join('data', 'marmousi_Ip_model.npy')).squeeze()[::5, ::4]
+        
+    
+    # standardize
+    seismic, model = standardize(seismic, model, no_wells)
+    
+    return seismic, model
 
-    # Split into train and val
-    train_indices = np.linspace(452, 2399, args.n_wells).astype(int)
-    val_indices = np.setdiff1d(np.arange(452, 2399).astype(int), train_indices)
-    x_train, y_train = seismic_offsets[train_indices], impedance[train_indices]
-    x_val, y_val = seismic_offsets[val_indices], impedance[val_indices]
 
-    # Standardize features and targets
-    x_train_norm, y_train_norm = (x_train - x_train.mean()) / x_train.std(), (y_train - y_train.mean()) / y_train.std()
-    x_val_norm, y_val_norm = (x_val - x_train.mean()) / x_train.std(), (y_val - y_train.mean()) / y_train.std()
-    seismic_offsets = (seismic_offsets - x_train.mean()) / x_train.std()
-
-    return x_train_norm, y_train_norm, x_val_norm, y_val_norm, seismic_offsets
-
-
-# Define train function
-def train(args):
-    """Sets up the model to train"""
-    # Create a writer object to log events during training
-    writer = SummaryWriter(pjoin('runs', 'exp_1'))
-
+def train(**kwargs):
+    """Function trains 2-D TCN as specified in the paper"""
+    
+    # obtain data
+    seismic, model = preprocess(kwargs['no_wells'], kwargs['data_flag'])
+                                                                           
+    
+    # specify pseudolog positions for training and validation
+    traces_seam_train = np.linspace(0, len(model)-1, kwargs['no_wells'], dtype=int)
+    traces_seam_validation = np.linspace(0, len(model)-1, 3, dtype=int)
+    
+    seam_train_dataset = SeismicDataset1D(seismic, model, traces_seam_train)
+    seam_train_loader = DataLoader(seam_train_dataset, batch_size = len(seam_train_dataset))
+    
+    seam_val_dataset = SeismicDataset1D(seismic, model, traces_seam_validation)
+    seam_val_loader = DataLoader(seam_val_dataset, batch_size = len(seam_val_dataset))
+    
+    
+    # define device for training
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load splits
-    x_train, y_train, x_val, y_val, seismic = train_val_split(args)
-
-    # Convert to torch tensors in the form (N, C, L)
-    x_train = torch.from_numpy(np.expand_dims(x_train, 1)).float().to(device)
-    y_train = torch.from_numpy(np.expand_dims(y_train, 1)).float().to(device)
-    x_val = torch.from_numpy(np.expand_dims(x_val, 1)).float().to(device)
-    y_val = torch.from_numpy(np.expand_dims(y_val, 1)).float().to(device)
-    seismic = torch.from_numpy(np.expand_dims(seismic, 1)).float().to(device)
-
-    # Set up the dataloader for training dataset
-    dataset = SeismicLoader(x_train, y_train)
-    train_loader = DataLoader(dataset=dataset,
-                              batch_size=args.batch_size,
-                              shuffle=False)
-
-    # import tcn
-    model = TCN(1,
-                1,
-                args.tcn_layer_channels,
-                args.kernel_size,
-                args.dropout).to(device)
-
-    #model = ANN().to(device)
-
-    #model = lstm().to(device)
-
+    # set up models
+    model_seam = MustafaNet().to(device)
+    
     # Set up loss
     criterion = torch.nn.MSELoss()
+    
+    
+    optimizer_seam = torch.optim.Adam(model_seam.parameters(),
+                                      weight_decay=0.0001,
+                                      lr=0.001)
+    
+    # start training 
+    for epoch in range(kwargs['epochs']):
+    
+      model_seam.train()
+      optimizer_seam.zero_grad()
+      
+      
+      for x,y in seam_train_loader:
+        y_pred = model_seam(x)
+        loss_train = criterion(y_pred, y) 
+    
+      for x, y in seam_val_loader:
+        model_seam.eval()
+        y_pred = model_seam(x)
+        val_loss = criterion(y_pred, y)
+        
+    
+      loss_train.backward()
+      optimizer_seam.step()
+      
+      print('Epoch: {} | Train Loss: {:0.4f} | Val Loss: {:0.4f} \
+            '.format(epoch, loss_train.item(), val_loss.item()))
 
-    # Define Optimizer
-    optimizer = torch.optim.Adam(model.parameters(),
-                                 weight_decay=args.weight_decay,
-                                 lr=args.lr)
+    
+    # save trained models
+    if not os.path.isdir('saved_models'):  # check if directory for saved models exists
+        os.mkdir('saved_models')
+        
+    torch.save(model_seam.state_dict(), 'saved_models/model_seam_1D.pth')
 
-    # Set up list to store the losses
-    train_loss = [np.inf]
-    val_loss = [np.inf]
-    iter = 0
-    # Start training
-    for epoch in range(args.n_epoch):
-        for x, y in train_loader:
-            model.train()
-            optimizer.zero_grad()
-            y_pred = model(x)
-            loss = criterion(y_pred, y)
-            loss.backward()
-            optimizer.step()
-            train_loss.append(loss.item())
-            writer.add_scalar(tag='Training Loss', scalar_value=loss.item(), global_step=iter)
-            if epoch % 200 == 0:
-                with torch.no_grad():
-                    model.eval()
-                    y_pred = model(x_val)
-                    loss = criterion(y_pred, y_val)
-                    val_loss.append(loss.item())
-                    writer.add_scalar(tag='Validation Loss', scalar_value=loss.item(), global_step=iter)
-            print('epoch:{} - Training loss: {:0.4f} | Validation loss: {:0.4f}'.format(epoch,
-                                                                                        train_loss[-1],
-                                                                                        val_loss[-1]))
-
-            if epoch % 100 == 0:
-                with torch.no_grad():
-                    model.eval()
-                    AI_inv = model(seismic)
-                fig, ax = plt.subplots()
-                ax.imshow(AI_inv[:, 0].detach().cpu().numpy().squeeze().T, cmap="rainbow")
-                ax.set_aspect(4)
-                writer.add_figure('Inverted Acoustic Impedance', fig, iter)
-        iter += 1
-
-    writer.close()
-
-    # Set up directory to save results
-    results_directory = 'results'
-    seismic_offsets = np.expand_dims(marmousi_seismic().squeeze()[:, 100:600], 1)
-    seismic_offsets = torch.from_numpy((seismic_offsets - seismic_offsets.mean()) / seismic_offsets.std()).float()
+def test(**kwargs):
+    """Function tests the trained network on SEAM and Marmousi sections and 
+    prints out the results"""
+    
+    # obtain data
+    seismic, model = preprocess(kwargs['no_wells'], kwargs['data_flag'])
+                                                                          
+    
+    # define device for training
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # specify pseudolog positions for testing 
+    traces_seam_test = np.arange(len(model), dtype=int)
+    
+    seam_test_dataset = SeismicDataset1D(seismic, model, traces_seam_test)
+    seam_test_loader = DataLoader(seam_test_dataset, batch_size = 8)
+    
+    # load saved models
+    if not os.path.isdir('saved_models'):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), 'saved_models')
+        
+    # set up models
+    model_seam = MustafaNet().to(device)
+    model_seam.load_state_dict(torch.load('saved_models/model_seam_1D.pth'))
+    
+    # infer on SEAM
+    print("\nInferring ...")
+    x, y = seam_test_dataset[0]  # get a sample
+    AI_pred = torch.zeros((len(seam_test_dataset), y.shape[-1])).float().to(device)
+    AI_act = torch.zeros((len(seam_test_dataset), y.shape[-1])).float().to(device)
+    
+    mem = 0
     with torch.no_grad():
-        model.cpu()
-        model.eval()
-        AI_inv = model(seismic_offsets)
+        for i, (x,y) in enumerate(seam_test_loader):
+          model_seam.eval()
+          y_pred  = model_seam(x)
+          AI_pred[mem:mem+len(x)] = y_pred.squeeze().data
+          AI_act[mem:mem+len(x)] = y.squeeze().data
+          mem += len(x)
+          del x, y, y_pred
+    
+    vmin, vmax = AI_act.min(), AI_act.max()
 
-    if not os.path.exists(results_directory):  # Make results directory if it doesn't already exist
-        os.mkdir(results_directory)
-        print('Saving results...')
-    else:
-        print('Saving results...')
+    AI_pred = AI_pred.detach().cpu().numpy()
+    AI_act = AI_act.detach().cpu().numpy()
+    print('r^2 score: {:0.4f}'.format(r2_score(AI_act.T, AI_pred.T)))
+    print('MSE: {:0.4f}'.format(np.sum((AI_pred-AI_act).ravel()**2)/AI_pred.size))
+    print('MAE: {:0.4f}'.format(np.sum(np.abs(AI_pred - AI_act)/AI_pred.size)))
+    print('MedAE: {:0.4f}'.format(np.median(np.abs(AI_pred - AI_act))))
+    
+    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(12,12))
+    ax1.imshow(AI_pred.T, vmin=vmin, vmax=vmax, extent=(0,35000,15000,0))
+    ax1.set_aspect(35/30)
+    ax1.set_xlabel('Distance Eastimg (m)')
+    ax1.set_ylabel('Depth (m)')
+    ax1.set_title('Predicted')
+    ax2.imshow(AI_act.T, vmin=vmin, vmax=vmax, extent=(0,35000,15000,0))
+    ax2.set_aspect(35/30)
+    ax2.set_xlabel('Distance Eastimg (m)')
+    ax2.set_ylabel('Depth (m)')
+    ax2.set_title('Ground-Truth')
+    plt.show()
 
-    np.save(pjoin(results_directory, 'AI.npy'), marmousi_model().T[452:2399, 400:2400])
-    np.save(pjoin(results_directory, 'AI_inv.npy'), AI_inv.detach().numpy().squeeze()[452:2399])
-    print('Results successfully saved.')
+
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--n_epoch', nargs='?', type=int, default=1000,
-                        help='# of the epochs. Default = 1000')
-    parser.add_argument('--batch_size', nargs='?', type=int, default=10,
-                        help='Batch size. Default = 1.')
-    parser.add_argument('--tcn_layer_channels', nargs='+', type=int, default=[3, 5, 5, 5, 6, 6, 6, 6],
-                        help='No of channels in each temporal block of the tcn. Default = numbers reported in paper')
-    parser.add_argument('--kernel_size', nargs='?', type=int, default=5,
-                        help='kernel size for the tcn. Default = 5')
-    parser.add_argument('--dropout', nargs='?', type=float, default=0.2,
-                        help='Dropout for the tcn. Default = 0.2')
-    parser.add_argument('--n_wells', nargs='?', type=int, default=10,
-                        help='# of well-logs used for training. Default = 19')
-    parser.add_argument('--lr', nargs='?', type=float, default=0.001,
-                        help='learning rate parameter for the adam optimizer. Default = 0.001')
-    parser.add_argument('--weight_decay', nargs='?', type=float, default=0.0001,
-                        help='weight decay parameter for the adam optimizer. Default = 0.0001')
+    
+    parser.add_argument('--epochs', nargs='?', type=int, default=900,
+                        help='Number of epochs. Default = 1000')
+    parser.add_argument('--no_wells', nargs='?', type=int, default=12,
+                        help='Number of sampled pseudologs for seismic section. Default = 12.')
+    parser.add_argument('--data_flag', type=str, default='seam', choices=['seam', 'marmousi'],
+                        help='Data flag to specify the dataset used to train the model')
+
 
     args = parser.parse_args()
-    train(args)
-    evaluate(args)
+    
+    train(no_wells=args.no_wells, epochs=args.epochs, data_flag=args.data_flag)
+    test(no_wells=args.no_wells, epochs=args.epochs, data_flag=args.data_flag)
