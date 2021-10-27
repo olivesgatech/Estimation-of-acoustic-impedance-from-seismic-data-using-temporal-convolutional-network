@@ -43,14 +43,19 @@ python train.py --no_wells 12 --epochs 900 --data_flag <marmousi or seam>
 ```  
 
 ## Citation 
-If you have found our code and data useful, we humbly request you to cite our work. You can cite the arXiv preprint:
+If you have found our code and data useful, we humbly request you to cite our work. 
 ```tex
-@incollection{amustafa2019AI,
-title=Estimation of Acoustic Impedance from Seismic Data using Temporal Convolutional Network,
-author=Mustafa, Ahmad and AlRegib, Ghassan,
-booktitle=arXiv:1906.02684,
-year=2019,
-publisher=Society of Exploration Geophysicists}
+@inbook{doi:10.1190/segam2019-3216840.1,
+author = {Ahmad Mustafa and Motaz Alfarraj and Ghassan AlRegib},
+title = {Estimation of acoustic impedance from seismic data using temporal convolutional network},
+booktitle = {SEG Technical Program Expanded Abstracts 2019},
+chapter = {},
+pages = {2554-2558},
+year = {2019},
+doi = {10.1190/segam2019-3216840.1},
+URL = {https://library.seg.org/doi/abs/10.1190/segam2019-3216840.1}
+}
+
 ```
 The arXiv preprint is available at: [https://arxiv.org/abs/1906.02684](https://arxiv.org/abs/1906.02684)
 
